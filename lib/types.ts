@@ -30,12 +30,14 @@ export interface Post {
 }
 
 /**
- * 新規挿入用（id, created_at, updated_at はDBで生成）
+ * 新規挿入用（id, created_at, updated_at はDBで生成。翻訳・スクショは後で更新）
  */
-export type PostInsert = Omit<Post, "id" | "created_at" | "updated_at"> & {
-  id?: number;
-  created_at?: Date;
-  updated_at?: Date;
+export type PostInsert = Pick<Post, "source" | "original_id" | "status"> & {
+  content_text?: string | null;
+  translated_text?: string | null;
+  original_url?: string | null;
+  screenshot_url?: string | null;
+  fail_count?: number;
 };
 
 /**

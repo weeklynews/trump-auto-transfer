@@ -1,36 +1,69 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# トランプ投稿・自動翻訳転送システム
 
-## Getting Started
+Truth Social および X からドナルド・トランプ氏の投稿を取得し、日本語翻訳＋スクショ画像を添えて指定の X アカウントに自動投稿するシステムです。
 
-First, run the development server:
+## 技術スタック
+
+- **Next.js** (App Router), TypeScript, Tailwind CSS
+- **Vercel Postgres** (Neon), **Vercel Blob**
+- **Vercel Cron Jobs**（10分間隔）
+
+## セットアップ
+
+### 1. 環境変数
+
+`.env.example` をコピーして `.env.local` を作成し、各値を設定してください。
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+cp .env.example .env.local
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+必須の主な変数:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+- `DATABASE_URL` … Vercel ダッシュボードの Storage（Neon）から取得
+- `BLOB_READ_WRITE_TOKEN` … Vercel Storage の Blob から取得
+- `X_API_KEY`, `X_API_SECRET`, `X_POSTER_ACCESS_TOKEN`, `X_POSTER_ACCESS_SECRET` … X Developer Portal で発行
+- `X_TARGET_USER_ID` … 監視対象（例: `realDonaldTrump` または数値ID）
+- `TRUTH_RSS_URL` … Truth Social 用 RSS フィード URL
+- `DEEPL_API_KEY` … DeepL API
+- `SCREENSHOT_API_KEY` … スクショAPI（Urlbox 等）のキー
+- `CRON_SECRET` … Cron エンドポイント保護用（任意のランダム文字列）
+- `MAX_PROCESS_PER_RUN` … 1回の実行で処理する最大件数（推奨: 1〜2）
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+### 2. データベース初期化
 
-## Learn More
+Vercel でプロジェクトをリンクしたあと、Neon の SQL エディタ（または Vercel Dashboard → Storage → Postgres）で `schema/init.sql` の内容を実行してください。
 
-To learn more about Next.js, take a look at the following resources:
+### 3. 開発・ビルド
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```bash
+npm install
+npm run dev    # 開発サーバー
+npm run build  # 本番ビルド
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+### 4. Cron の保護
 
-## Deploy on Vercel
+本番では `CRON_SECRET` を設定し、Vercel Cron の「Authorization: Bearer \<CRON_SECRET\>」が送られるようにしてください。未設定の場合は認証をスキップします。
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## ディレクトリ構成
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- `app/api/cron/check-posts/` … 定期実行されるメイン API
+- `lib/db.ts` … データベース（Neon）
+- `lib/x-api.ts` … X 取得・投稿
+- `lib/deepl.ts` … 翻訳
+- `lib/truth-social.ts` … Truth Social RSS 取得
+- `lib/screenshot.ts` … スクショ API
+- `lib/storage.ts` … Vercel Blob 保存
+- `schema/init.sql` … テーブル定義
+
+## 動作フロー
+
+1. **Cron** が約10分ごとに `/api/cron/check-posts` を呼ぶ
+2. **取得**: Truth Social（RSS）と X（API）から新着を取得し、重複しなければ `posts` に `pending` で挿入
+3. **処理**: `pending` を最大 `MAX_PROCESS_PER_RUN` 件まで処理  
+   - DeepL で日本語翻訳  
+   - スクショ API で元投稿の画像取得 → Vercel Blob に保存  
+   - status を `translated` に更新
+4. **投稿**: X API で「日本語訳テキスト ＋ スクショ画像」を投稿し、status を `posted` に更新
+5. **リトライ**: `failed` かつ翻訳済みの行は、次回 Cron で投稿のみ再試行
