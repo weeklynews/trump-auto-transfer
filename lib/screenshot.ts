@@ -1,37 +1,37 @@
 /**
- * スクリーンショット API（Urlbox / ScreenshotOne 等）で URL の画像を取得する
- * 環境変数: SCREENSHOT_API_KEY, 必要に応じて SCREENSHOT_API_URL
+ * ScreenshotOne API で URL のスクリーンショット画像を取得する
+ * 環境変数: SCREENSHOT_API_KEY (Access Key), 任意で SCREENSHOT_API_URL, SCREENSHOT_API_SECRET (署名用)
  */
 
 export interface ScreenshotOptions {
   url: string;
-  /** 幅（ピクセル） */
+  /** ビューポート幅（ピクセル） */
   width?: number;
-  /** セレクターで非表示にする要素（ポップアップ等） */
+  /** 非表示にする CSS セレクター（ポップアップ等） */
   hideSelectors?: string[];
 }
 
 /**
  * 指定URLのスクリーンショット画像を取得し、Buffer で返す
- * 実装例: Urlbox の場合は GET https://api.urlbox.io/v1/.../png?url=...&token=...
+ * ScreenshotOne: https://api.screenshotone.com/take?access_key=...&url=...&format=png&viewport_width=...
  */
 export async function captureScreenshot(
   options: ScreenshotOptions
 ): Promise<Buffer> {
-  const key = process.env.SCREENSHOT_API_KEY;
-  if (!key) {
+  const accessKey = process.env.SCREENSHOT_API_KEY;
+  if (!accessKey) {
     throw new Error("SCREENSHOT_API_KEY is not set");
   }
   const baseUrl =
-    process.env.SCREENSHOT_API_URL ?? "https://api.urlbox.io/v1/render";
+    process.env.SCREENSHOT_API_URL ?? "https://api.screenshotone.com/take";
   const params = new URLSearchParams({
+    access_key: accessKey,
     url: options.url,
-    token: key,
     format: "png",
-    width: String(options.width ?? 600),
+    viewport_width: String(options.width ?? 600),
   });
   if (options.hideSelectors?.length) {
-    params.set("hide_selector", options.hideSelectors.join(","));
+    params.set("hide_selectors", options.hideSelectors.join(","));
   }
   const res = await fetch(`${baseUrl}?${params.toString()}`, {
     method: "GET",
