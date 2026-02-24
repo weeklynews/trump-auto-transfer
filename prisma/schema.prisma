@@ -1,0 +1,11 @@
+// Prisma Postgres 接続用（スキーマ作成・マイグレーション実行用）
+// アプリの DB 操作は引き続き lib/db.ts (Neon) を使用
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}

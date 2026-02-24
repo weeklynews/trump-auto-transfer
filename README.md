@@ -32,7 +32,16 @@ cp .env.example .env.local
 
 ### 2. データベース初期化
 
-Vercel でプロジェクトをリンクしたあと、Neon の SQL エディタ（または Vercel Dashboard → Storage → Postgres）で `schema/init.sql` の内容を実行してください。
+**方法A（ローカルから実行）**
+
+1. Vercel の **trump-auto-transfer** プロジェクトに、Postgres を Connect しておく。
+2. 環境変数を取得: `npx vercel env pull .env.local`（先に `npx vercel link` でプロジェクトをリンク）。
+3. スキーマを適用: `npm run db:init`
+
+**方法B（Vercel / Prisma の画面から実行）**
+
+- Prisma Postgres を使っている場合: Vercel の Storage → 該当 DB → **Open in Prisma** で Prisma コンソールを開き、**SQL を実行できる画面**で `schema/init.sql` の内容をコピー＆実行する。
+- または、Neon の SQL Editor で `schema/init.sql` を実行する。
 
 ### 3. 開発・ビルド
 

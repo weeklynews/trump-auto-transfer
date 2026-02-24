@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "db:init": "node scripts/run-init-sql.mjs"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.0.2",
