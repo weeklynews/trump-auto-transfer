@@ -8,11 +8,7 @@ import {
   setPostFailed,
 } from "@/lib/db";
 import { fetchTruthSocialFeed } from "@/lib/truth-social";
-import {
-  fetchUserTweets,
-  resolveUserId,
-  postTweetWithMedia,
-} from "@/lib/x-api";
+import { postTweetWithMedia } from "@/lib/x-api";
 import { translateToJapanese } from "@/lib/deepl";
 import { captureScreenshot } from "@/lib/screenshot";
 import { uploadScreenshot } from "@/lib/storage";
@@ -34,10 +30,10 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const summary = { fetched: { truth: 0, x: 0 }, processed: 0, retried: 0, errors: [] as string[] };
+  const summary = { fetched: { truth: 0 }, processed: 0, retried: 0, errors: [] as string[] };
 
   try {
-    // --- 1. 新着を DB に投入（冪等）---
+    // --- 1. Truth Social RSS のみ新着を DB に投入（冪等）---
     const truthItems = await fetchTruthSocialFeed().catch((e) => {
       summary.errors.push(`Truth Social: ${e instanceof Error ? e.message : String(e)}`);
       return [];
@@ -51,27 +47,6 @@ export async function GET(request: NextRequest) {
         status: "pending",
       });
       if (inserted != null) summary.fetched.truth += 1;
-    }
-
-    const targetUserId = process.env.X_TARGET_USER_ID;
-    if (targetUserId) {
-      const userId = /^\d+$/.test(targetUserId)
-        ? targetUserId
-        : await resolveUserId(targetUserId);
-      const tweets = await fetchUserTweets(userId, 20).catch((e) => {
-        summary.errors.push(`X fetch: ${e instanceof Error ? e.message : String(e)}`);
-        return [];
-      });
-      for (const t of tweets) {
-        const inserted = await insertPostIfNotExists({
-          source: "x",
-          original_id: t.id,
-          content_text: t.text,
-          original_url: `https://x.com/i/status/${t.id}`,
-          status: "pending",
-        });
-        if (inserted != null) summary.fetched.x += 1;
-      }
     }
 
     // --- 2. 未処理 + リトライ候補を取得（合計 MAX_PROCESS_PER_RUN 件まで）---

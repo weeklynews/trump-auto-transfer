@@ -11,20 +11,33 @@ export interface TruthSocialItem {
   pubDate: string;
 }
 
+const USER_AGENT =
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+
 /**
  * RSS フィードをパースして新着投稿リストを返す
  */
 export async function fetchTruthSocialFeed(): Promise<TruthSocialItem[]> {
   const url = process.env.TRUTH_RSS_URL;
   if (!url) {
+    console.error("[Truth Social] TRUTH_RSS_URL is not set");
     throw new Error("TRUTH_RSS_URL is not set");
   }
   const res = await fetch(url, {
     next: { revalidate: 0 },
-    headers: { "User-Agent": "TrumpAutoTransfer/1.0" },
+    headers: { "User-Agent": USER_AGENT },
   });
   if (!res.ok) {
-    throw new Error(`Truth Social RSS error: ${res.status}`);
+    const body = await res.text().catch(() => "");
+    console.error("[Truth Social] RSS fetch failed", {
+      url,
+      status: res.status,
+      statusText: res.statusText,
+      bodyPreview: body.slice(0, 200),
+    });
+    throw new Error(
+      `Truth Social RSS error: ${res.status} ${res.statusText}${res.status === 403 ? " (blocked/forbidden)" : res.status === 404 ? " (URL not found)" : ""}`
+    );
   }
   const xml = await res.text();
   return parseRssItems(xml);
