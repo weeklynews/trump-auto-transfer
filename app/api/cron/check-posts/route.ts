@@ -71,7 +71,10 @@ export async function GET(request: NextRequest) {
           if (post.original_url) {
             const buffer = await captureScreenshot({
               url: post.original_url,
-              width: 600,
+              width: 900,
+              fullPage: true,
+              waitUntil: "networkidle",
+              delayMs: 1200,
               hideSelectors: ['[data-testid="login"]', ".overlay"],
             });
             const safeId = String(post.original_id).replace(/\/+/g, "-");
@@ -87,9 +90,11 @@ export async function GET(request: NextRequest) {
           continue;
         }
         const mediaUrl = screenshotUrl || undefined;
-        const text = mediaUrl
-          ? `${translated}\n\n${post.original_url || ""}`
-          : translated;
+        const sourceLabel =
+          post.source === "truth_social"
+            ? "【Trump Truth Social / @realDonaldTrump】"
+            : "【Auto Post】";
+        const text = `${sourceLabel}\n${translated}${post.original_url ? `\n\n${post.original_url}` : ""}`;
         await postTweetWithMedia(text, mediaUrl || "");
         await setPostPosted(post.id);
         if (isRetry) summary.retried += 1;

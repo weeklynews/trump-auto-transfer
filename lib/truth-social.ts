@@ -54,8 +54,8 @@ function parseRssItems(xml: string): TruthSocialItem[] {
   while ((m = itemRegex.exec(xml)) !== null) {
     const block = m[1];
     const link = extractTag(block, "link");
-    const title = extractTag(block, "title");
-    const desc = extractTag(block, "description");
+    const title = normalizeTruthContent(extractTag(block, "title"));
+    const desc = normalizeTruthContent(extractTag(block, "description"));
     const pubDate = extractTag(block, "pubDate");
     const guid = extractTag(block, "guid");
     const id = guid || link || `${title}-${pubDate}`;
@@ -84,4 +84,20 @@ function decodeHtml(s: string): string {
     .replace(/&gt;/g, ">")
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'");
+}
+
+function normalizeTruthContent(input: string): string {
+  if (!input) return "";
+  return input
+    .replace(/<!\[CDATA\[/gi, "")
+    .replace(/\]\]>/g, "")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/p>/gi, "\n\n")
+    .replace(/<p[^>]*>/gi, "")
+    .replace(/<\/?(div|section|article|li|ul|ol|blockquote|h[1-6])[^>]*>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/\r\n/g, "\n")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
