@@ -1,14 +1,14 @@
-import { PrismaClient } from "@prisma/client";
+import * as PrismaClientPkg from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import pg from "pg";
 import type { Post, PostInsert } from "./types";
 
 const globalForPrisma = globalThis as unknown as {
-  prisma?: PrismaClient;
+  prisma?: any;
   prismaPool?: pg.Pool;
 };
 
-function getPrisma(): PrismaClient {
+function getPrisma(): any {
   if (!globalForPrisma.prisma) {
     const url = process.env.DATABASE_URL;
     if (!url) throw new Error("DATABASE_URL is not set");
@@ -16,7 +16,15 @@ function getPrisma(): PrismaClient {
       globalForPrisma.prismaPool = new pg.Pool({ connectionString: url });
     }
     const adapter = new PrismaPg(globalForPrisma.prismaPool);
-    globalForPrisma.prisma = new PrismaClient({ adapter });
+    const PrismaClientCtor = (PrismaClientPkg as {
+      PrismaClient?: new (args?: unknown) => any;
+    }).PrismaClient;
+    if (!PrismaClientCtor) {
+      throw new Error(
+        "@prisma/client PrismaClient export is missing. Run `npx prisma generate` and redeploy."
+      );
+    }
+    globalForPrisma.prisma = new PrismaClientCtor({ adapter });
   }
   return globalForPrisma.prisma;
 }
