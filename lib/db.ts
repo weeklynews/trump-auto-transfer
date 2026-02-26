@@ -1,14 +1,24 @@
-import { neon, NeonQueryFunction } from "@neondatabase/serverless";
+import { PrismaClient } from "@prisma/client";
+import { PrismaPg } from "@prisma/adapter-pg";
+import pg from "pg";
 import type { Post, PostInsert } from "./types";
 
-let _sql: NeonQueryFunction<false, false> | null = null;
-function getSql() {
-  if (!_sql) {
+const globalForPrisma = globalThis as unknown as {
+  prisma?: PrismaClient;
+  prismaPool?: pg.Pool;
+};
+
+function getPrisma(): PrismaClient {
+  if (!globalForPrisma.prisma) {
     const url = process.env.DATABASE_URL;
     if (!url) throw new Error("DATABASE_URL is not set");
-    _sql = neon(url);
+    if (!globalForPrisma.prismaPool) {
+      globalForPrisma.prismaPool = new pg.Pool({ connectionString: url });
+    }
+    const adapter = new PrismaPg(globalForPrisma.prismaPool);
+    globalForPrisma.prisma = new PrismaClient({ adapter });
   }
-  return _sql;
+  return globalForPrisma.prisma;
 }
 
 function toErrorMessage(err: unknown): string {
@@ -23,6 +33,34 @@ async function withDbContext<T>(operation: string, fn: () => Promise<T>): Promis
   }
 }
 
+function toPost(row: {
+  id: bigint;
+  source: string;
+  originalId: string;
+  contentText: string | null;
+  translatedText: string | null;
+  originalUrl: string | null;
+  screenshotUrl: string | null;
+  status: string;
+  failCount: number;
+  createdAt: Date;
+  updatedAt: Date;
+}): Post {
+  return {
+    id: Number(row.id),
+    source: row.source as Post["source"],
+    original_id: row.originalId,
+    content_text: row.contentText,
+    translated_text: row.translatedText,
+    original_url: row.originalUrl,
+    screenshot_url: row.screenshotUrl,
+    status: row.status as Post["status"],
+    fail_count: row.failCount,
+    created_at: row.createdAt,
+    updated_at: row.updatedAt,
+  };
+}
+
 /**
  * 既に (source, original_id) が存在するか
  */
@@ -31,13 +69,12 @@ export async function existsBySourceAndOriginalId(
   originalId: string
 ): Promise<boolean> {
   return withDbContext("existsBySourceAndOriginalId", async () => {
-    const sql = getSql();
-    const rows = await sql`
-      SELECT 1 FROM posts
-      WHERE source = ${source} AND original_id = ${originalId}
-      LIMIT 1
-    `;
-    return rows.length > 0;
+    const prisma = getPrisma();
+    const row = await prisma.post.findFirst({
+      where: { source, originalId },
+      select: { id: true },
+    });
+    return row != null;
   });
 }
 
@@ -49,24 +86,28 @@ export async function insertPostIfNotExists(
   row: PostInsert
 ): Promise<number | null> {
   return withDbContext("insertPostIfNotExists", async () => {
-    const sql = getSql();
-    const result = await sql`
-      INSERT INTO posts (source, original_id, content_text, translated_text, original_url, screenshot_url, status, fail_count)
-      VALUES (
-        ${row.source},
-        ${row.original_id},
-        ${row.content_text ?? null},
-        ${row.translated_text ?? null},
-        ${row.original_url ?? null},
-        ${row.screenshot_url ?? null},
-        ${row.status ?? "pending"},
-        ${row.fail_count ?? 0}
-      )
-      ON CONFLICT (source, original_id) DO NOTHING
-      RETURNING id
-    `;
-    const id = result?.[0]?.id;
-    return id != null ? Number(id) : null;
+    const prisma = getPrisma();
+    try {
+      const created = await prisma.post.create({
+        data: {
+          source: row.source,
+          originalId: row.original_id,
+          contentText: row.content_text ?? null,
+          translatedText: row.translated_text ?? null,
+          originalUrl: row.original_url ?? null,
+          screenshotUrl: row.screenshot_url ?? null,
+          status: row.status ?? "pending",
+          failCount: row.fail_count ?? 0,
+        },
+        select: { id: true },
+      });
+      return Number(created.id);
+    } catch (err) {
+      if (err && typeof err === "object" && "code" in err && (err as { code: string }).code === "P2002") {
+        return null;
+      }
+      throw err;
+    }
   });
 }
 
@@ -75,15 +116,13 @@ export async function insertPostIfNotExists(
  */
 export async function getPendingPosts(limit: number): Promise<Post[]> {
   return withDbContext("getPendingPosts", async () => {
-    const sql = getSql();
-    const rows = await sql`
-      SELECT id, source, original_id, content_text, translated_text, original_url, screenshot_url, status, fail_count, created_at, updated_at
-      FROM posts
-      WHERE status = 'pending'
-      ORDER BY created_at ASC
-      LIMIT ${limit}
-    `;
-    return rows as Post[];
+    const prisma = getPrisma();
+    const rows = await prisma.post.findMany({
+      where: { status: "pending" },
+      orderBy: { createdAt: "asc" },
+      take: limit,
+    });
+    return rows.map(toPost);
   });
 }
 
@@ -92,15 +131,17 @@ export async function getPendingPosts(limit: number): Promise<Post[]> {
  */
 export async function getRetryPostCandidates(limit: number): Promise<Post[]> {
   return withDbContext("getRetryPostCandidates", async () => {
-    const sql = getSql();
-    const rows = await sql`
-      SELECT id, source, original_id, content_text, translated_text, original_url, screenshot_url, status, fail_count, created_at, updated_at
-      FROM posts
-      WHERE status = 'failed' AND translated_text IS NOT NULL AND translated_text != ''
-      ORDER BY updated_at ASC
-      LIMIT ${limit}
-    `;
-    return rows as Post[];
+    const prisma = getPrisma();
+    const rows = await prisma.post.findMany({
+      where: {
+        status: "failed",
+        translatedText: { not: null },
+        NOT: { translatedText: "" },
+      },
+      orderBy: { updatedAt: "asc" },
+      take: limit,
+    });
+    return rows.map(toPost);
   });
 }
 
@@ -113,12 +154,15 @@ export async function setPostTranslated(
   screenshot_url: string | null
 ): Promise<void> {
   await withDbContext("setPostTranslated", async () => {
-    const sql = getSql();
-    await sql`
-      UPDATE posts
-      SET status = 'translated', translated_text = ${translated_text}, screenshot_url = ${screenshot_url}, updated_at = NOW()
-      WHERE id = ${id}
-    `;
+    const prisma = getPrisma();
+    await prisma.post.update({
+      where: { id: BigInt(id) },
+      data: {
+        status: "translated",
+        translatedText: translated_text,
+        screenshotUrl: screenshot_url,
+      },
+    });
   });
 }
 
@@ -127,8 +171,11 @@ export async function setPostTranslated(
  */
 export async function setPostPosted(id: number): Promise<void> {
   await withDbContext("setPostPosted", async () => {
-    const sql = getSql();
-    await sql`UPDATE posts SET status = 'posted', updated_at = NOW() WHERE id = ${id}`;
+    const prisma = getPrisma();
+    await prisma.post.update({
+      where: { id: BigInt(id) },
+      data: { status: "posted" },
+    });
   });
 }
 
@@ -137,11 +184,13 @@ export async function setPostPosted(id: number): Promise<void> {
  */
 export async function setPostFailed(id: number): Promise<void> {
   await withDbContext("setPostFailed", async () => {
-    const sql = getSql();
-    await sql`
-      UPDATE posts
-      SET status = 'failed', fail_count = fail_count + 1, updated_at = NOW()
-      WHERE id = ${id}
-    `;
+    const prisma = getPrisma();
+    await prisma.post.update({
+      where: { id: BigInt(id) },
+      data: {
+        status: "failed",
+        failCount: { increment: 1 },
+      },
+    });
   });
 }

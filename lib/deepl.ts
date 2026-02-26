@@ -11,14 +11,16 @@ export async function translateToJapanese(text: string): Promise<string> {
     throw new Error("DEEPL_API_KEY is not set");
   }
   const params = new URLSearchParams({
-    auth_key: key,
     text,
     source_lang: "EN",
     target_lang: "JA",
   });
   const res = await fetch(DEEPL_API, {
     method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      Authorization: `DeepL-Auth-Key ${key}`,
+    },
     body: params.toString(),
   });
   if (!res.ok) {

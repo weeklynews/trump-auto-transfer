@@ -1,5 +1,5 @@
 /**
- * schema/init.sql を Prisma Postgres / Neon に適用する
+ * schema/init.sql を Prisma Postgres に適用する
  * 使い方: .env.local に DATABASE_URL を設定してから
  *   node scripts/run-init-sql.mjs
  * または
@@ -9,7 +9,9 @@
 import { readFileSync } from "fs";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
-import { neon } from "@neondatabase/serverless";
+import { PrismaClient } from "@prisma/client";
+import { PrismaPg } from "@prisma/adapter-pg";
+import pg from "pg";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = join(__dirname, "..");
@@ -23,7 +25,7 @@ function loadEnvLocal() {
       const m = line.match(/^([^#=]+)=(.*)$/);
       if (m) process.env[m[1].trim()] = m[2].trim().replace(/^["']|["']$/g, "");
     }
-  } catch (_) {
+  } catch {
     console.warn(".env.local が見つかりません。環境変数 DATABASE_URL を設定してください。");
   }
 }
@@ -36,7 +38,9 @@ if (!url) {
   process.exit(1);
 }
 
-const sql = neon(url);
+const pool = new pg.Pool({ connectionString: url });
+const adapter = new PrismaPg(pool);
+const prisma = new PrismaClient({ adapter });
 
 // init.sql を文ごとに分割（$$...$$ 内の ; は区切りにしない）
 const initPath = join(root, "schema", "init.sql");
@@ -61,17 +65,20 @@ async function main() {
     const s = statements[i];
     if (!s) continue;
     try {
-      await sql.unsafe(s);
+      await prisma.$executeRawUnsafe(s);
       console.log(`[OK] 文 ${i + 1}/${statements.length}`);
     } catch (err) {
       console.error(`[ERR] 文 ${i + 1}:`, err.message);
       throw err;
     }
   }
+  await prisma.$disconnect();
+  await pool.end();
   console.log("init.sql の適用が完了しました。");
 }
 
 main().catch((e) => {
   console.error(e);
+  pool.end().catch(() => {});
   process.exit(1);
 });

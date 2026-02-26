@@ -1,11 +1,27 @@
-// Prisma Postgres 接続用（スキーマ作成・マイグレーション実行用）
-// アプリの DB 操作は引き続き lib/db.ts (Neon) を使用
-
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
+}
+
+model Post {
+  id             BigInt   @id @default(autoincrement())
+  source         String
+  originalId     String   @map("original_id")
+  contentText    String?  @map("content_text")
+  translatedText String?  @map("translated_text")
+  originalUrl    String?  @map("original_url")
+  screenshotUrl  String?  @map("screenshot_url")
+  status         String   @default("pending")
+  failCount      Int      @default(0) @map("fail_count")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  @@unique([source, originalId])
+  @@index([source, originalId], map: "idx_posts_source_original_id")
+  @@index([status], map: "idx_posts_status")
+  @@index([createdAt(sort: Desc)], map: "idx_posts_created_at")
+  @@map("posts")
 }

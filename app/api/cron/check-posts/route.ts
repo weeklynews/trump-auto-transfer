@@ -74,7 +74,8 @@ export async function GET(request: NextRequest) {
               width: 600,
               hideSelectors: ['[data-testid="login"]', ".overlay"],
             });
-            const pathname = `screenshots/${post.source}-${post.original_id}-${Date.now()}.png`;
+            const safeId = String(post.original_id).replace(/\/+/g, "-");
+            const pathname = `screenshots/${post.source}-${safeId}-${Date.now()}.png`;
             screenshotUrl = await uploadScreenshot(buffer, pathname);
           }
           await setPostTranslated(post.id, translated, screenshotUrl);
@@ -110,6 +111,9 @@ export async function GET(request: NextRequest) {
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     summary.errors.push(msg);
+    console.error("[cron/check-posts] 500 error:", msg);
+    if (e instanceof Error && e.stack) console.error("[cron/check-posts] stack:", e.stack);
+    console.error("[cron/check-posts] summary:", JSON.stringify(summary, null, 2));
     return NextResponse.json(
       { ok: false, error: msg, summary },
       { status: 500 }
